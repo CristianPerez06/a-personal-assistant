@@ -55,5 +55,35 @@ docker compose exec openclaw-gateway node dist/index.js devices list
 2. Approve the pending device using its ID:
 
 ```bash
-docker compose exec openclaw-gateway node dist/index.js devices approve THE_ID_HERE
+docker compose exec openclaw-gateway node dist/index.js devices approve THE_DOCKER_CONTAINER_ID_HERE
+```
+
+4. Install dependencies for Chromium and Playwrght
+
+```bash
+docker compose -f ~/src/personal/openclaw/docker-compose.yml exec -u root openclaw-gateway \
+  bash -c "apt-get update && apt-get install -y \
+    libnspr4 libnss3 libatk1.0-0 libatk-bridge2.0-0 \
+    libdbus-1-3 libcups2 libxkbcommon0 libatspi2.0-0 \
+    libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
+    libgbm1 libasound2"
+```
+
+5. Install Chromium and Playwright
+
+```bash
+docker compose exec openclaw-gateway bash -c "npx playwright install chromium"
+```
+
+6. Copy the SKILL folder
+
+```bash
+docker cp <PATH-TO-YOUR-SKILL-FOLDER> <DOCKER-CONTAINER-NAME>:/home/node/.openclaw/workspace/skills/
+```
+
+7. If you want to only copy one file use:
+
+```bash
+docker cp ~/src/personal/a-dca-bot/skills/ripio-login/SKILL.MD \
+  openclaw-openclaw-gateway-1:/home/node/.openclaw/workspace/skills/ripio-login/SKILL.md
 ```
