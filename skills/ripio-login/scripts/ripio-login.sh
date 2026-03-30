@@ -3,7 +3,8 @@
 # Automates the Ripio login flow via openclaw browser.
 #
 # Usage:
-#   ripio-login.sh <email> <password>    — navigate, dismiss cookies, login
+#   ripio-login.sh [email] [password]    — navigate, dismiss cookies, login
+#                                          Falls back to RIPIO_EMAIL / RIPIO_PASSWORD env vars.
 #   ripio-login.sh --2fa <totp_code>     — enter 2FA code on existing session
 #
 # Exit codes:
@@ -43,8 +44,13 @@ if [ "$1" = "--2fa" ]; then
   exit 0
 fi
 
-EMAIL="${1:?Usage: ripio-login.sh <email> <password>  OR  ripio-login.sh --2fa <totp_code>}"
-PASSWORD="${2:?Missing password}"
+EMAIL="${1:-$RIPIO_EMAIL}"
+PASSWORD="${2:-$RIPIO_PASSWORD}"
+
+if [ -z "$EMAIL" ] || [ -z "$PASSWORD" ]; then
+  echo "[ripio-login] ERROR: Provide email/password as arguments or set RIPIO_EMAIL and RIPIO_PASSWORD env vars"
+  exit 1
+fi
 
 echo "[ripio-login] Opening $RIPIO_URL"
 openclaw browser navigate "$RIPIO_URL"

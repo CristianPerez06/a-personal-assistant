@@ -87,3 +87,13 @@ docker cp <PATH-TO-YOUR-SKILL-FOLDER> <DOCKER-CONTAINER-NAME>:/home/node/.opencl
 docker cp ~/src/personal/a-dca-bot/skills/ripio-login/SKILL.MD \
   openclaw-openclaw-gateway-1:/home/node/.openclaw/workspace/skills/ripio-login/SKILL.md
 ```
+
+8. If you want to edit a file from the docker container:
+
+```bash
+  # Copy out
+  docker cp openclaw-openclaw-gateway-1:/home/node/.openclaw/openclaw.json ./openclaw.json
+
+  # Edit it locally, then copy back
+  docker cp ./openclaw.json openclaw-openclaw-gateway-1:/home/node/.openclaw/openclaw.json
+```
