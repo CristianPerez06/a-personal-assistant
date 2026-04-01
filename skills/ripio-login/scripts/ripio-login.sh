@@ -3,62 +3,81 @@
 # Automates the Ripio login flow via openclaw browser.
 #
 # Usage:
-#   ripio-login.sh [email] [password]    — navigate, dismiss cookies, login
-#                                          Falls back to RIPIO_EMAIL / RIPIO_PASSWORD env vars.
-#   ripio-login.sh --2fa <totp_code>     — enter 2FA code on existing session
+#   Step 1 — login:       ripio-login.sh <email> <password>
+#   Step 2 — 2FA submit:  ripio-login.sh --2fa <totp_code>
+#   Step 3 — magic link:  ripio-login.sh --magic-link <url>
 #
 # Exit codes:
 #   0 — success
-#   1 — missing field / unexpected error
-#   2 — wrong credentials
-#   3 — 2FA screen detected (run again with --2fa)
+#   2 — bad credentials
+#   3 — 2FA required (run again with --2fa <code>)
+#   4 — magic link required (run again with --magic-link <url>)
 
 set -e
 
-RIPIO_URL="https://auth.ripio.com/#/login/"
+# --- Magic link mode ---
+if [ "$1" = "--magic-link" ]; then
+  TOKEN="${2:?Missing magic link token}"
+  MAGIC_LINK_BASE="https://auth.ripio.com/authentication/complete-login"
+  LINK="${MAGIC_LINK_BASE}/${TOKEN}/"
+  echo "[ripio-login] Token received: $TOKEN"
+  echo "[ripio-login] Full URL: $LINK"
+  echo "[ripio-login] Current page URL before navigating:"
+  openclaw browser evaluate --fn '() => window.location.href'
+  echo "[ripio-login] Opening magic link in headless browser"
+  openclaw browser navigate "$LINK"
 
-enter_2fa() {
-  local TOTP="$1"
+  # Wait for redirects to complete — poll URL until it stabilizes
+  PREV_URL=""
+  for i in 1 2 3 4 5 6; do
+    sleep 3
+    CURR_URL=$(openclaw browser evaluate --fn '() => window.location.href')
+    echo "[ripio-login] URL after ${i}x3s: $CURR_URL"
+    if [ "$CURR_URL" = "$PREV_URL" ]; then
+      echo "[ripio-login] URL stabilized"
+      break
+    fi
+    PREV_URL="$CURR_URL"
+  done
+
   SNAP=$(openclaw browser snapshot)
+  echo "[ripio-login] Done. Full page state after magic link:"
+  echo "$SNAP"
+  exit 0
+fi
 
-  echo "[ripio-login] 2FA screen detected, entering code: $TOTP"
+# --- 2FA-only mode ---
+if [ "$1" = "--2fa" ]; then
+  TOTP="${2:?Missing 2FA code}"
+  SNAP=$(openclaw browser snapshot)
   DIGITS=("${TOTP:0:1}" "${TOTP:1:1}" "${TOTP:2:1}" "${TOTP:3:1}" "${TOTP:4:1}" "${TOTP:5:1}")
-  REFS=($(echo "$SNAP" | grep -oP '(?<=textbox \[ref=)\w+(?=\])' | head -6))
+  REFS=($(echo "$SNAP" | grep -oP 'textbox(?:\s+\[\w+\])*\s+\[ref=\K\w+(?=\])' | head -6))
   for i in 0 1 2 3 4 5; do
     openclaw browser type "${REFS[$i]}" "${DIGITS[$i]}"
   done
-
   SNAP=$(openclaw browser snapshot)
   SUBMIT_BTN=$(echo "$SNAP" | grep -oP '(?<=button "Ingresar" \[ref=)\w+(?=\])' | head -1)
   openclaw browser click "$SUBMIT_BTN"
   sleep 4
-
   SNAP=$(openclaw browser snapshot)
   echo "[ripio-login] Done. Final page:"
   echo "$SNAP" | grep "heading" | head -5
-}
-
-if [ "$1" = "--2fa" ]; then
-  TOTP="${2:?Missing 2FA code}"
-  enter_2fa "$TOTP"
   exit 0
 fi
 
-EMAIL="${1:-$RIPIO_EMAIL}"
-PASSWORD="${2:-$RIPIO_PASSWORD}"
+EMAIL="${1:?Usage: ripio-login.sh <email> <password>}"
+PASSWORD="${2:?Missing password}"
 
-if [ -z "$EMAIL" ] || [ -z "$PASSWORD" ]; then
-  echo "[ripio-login] ERROR: Provide email/password as arguments or set RIPIO_EMAIL and RIPIO_PASSWORD env vars"
-  exit 1
-fi
+RIPIO_URL="https://auth.ripio.com/#/login/"
 
 echo "[ripio-login] Opening $RIPIO_URL"
 openclaw browser navigate "$RIPIO_URL"
 sleep 2
 
+# Snapshot to get current refs
 SNAP=$(openclaw browser snapshot)
 
-# Dismiss cookie banner if present
+# Dismiss cookie banner if present (button "Aceptar")
 COOKIE_BTN=$(echo "$SNAP" | grep -oP '(?<=button "Aceptar" \[ref=)\w+(?=\])' || true)
 if [ -n "$COOKIE_BTN" ]; then
   echo "[ripio-login] Dismissing cookie banner (ref=$COOKIE_BTN)"
@@ -101,12 +120,19 @@ if echo "$SNAP" | grep -q "User could not authenticate"; then
   exit 2
 fi
 
-# Check for 2FA
+# 2FA step
 if echo "$SNAP" | grep -q "código de seguridad"; then
-  echo "[ripio-login] 2FA required — ask the user for their TOTP code and re-run with --2fa"
+  echo "[ripio-login] 2FA screen detected"
   exit 3
 fi
 
-# No 2FA — login complete
+# Magic link step — Ripio sends an email with a verification link
+if echo "$SNAP" | grep -qi "Te enviamos un mail"; then
+  echo "[ripio-login] Magic link verification detected — check your email and send the link"
+  exit 4
+fi
+
+# Final state
+SNAP=$(openclaw browser snapshot)
 echo "[ripio-login] Done. Final page:"
 echo "$SNAP" | grep "heading" | head -5
