@@ -71,9 +71,29 @@ bash scripts/ripio-login.sh --magic-link <token>
 - Do **not** ask for the token upfront; only ask when the magic link step is actually required.
 - The script constructs the full URL and navigates to it. Report the output to the user.
 
+## Failure Handling
+
+**Do not attempt to fix, work around, or retry failures autonomously.** If any
+script step fails, stop immediately and report the following to the user:
+
+- The exact command that was run
+- The exit code
+- The full stderr/stdout output (untruncated)
+- The current page URL and a fresh `openclaw browser snapshot`, if a browser
+  is involved
+
+Do not edit the script. Do not try alternate selectors, alternate commands,
+direct browser launches, or other "creative" workarounds. Do not retry. Do
+not change the OpenClaw config. The user will investigate and direct any fix.
+
 ## Post-Login
 
-After a successful login, the browser session remains active. Continue using `openclaw browser snapshot/click/type` to interact with the authenticated session.
+After a successful login via magic link, the dashboard modal (if present) is **automatically closed**. The script detects the modal by its:
+
+- Class name starting with `modalClose`
+- Data-testid containing `dashboard_modal_bridge_news_close_button`
+
+The browser session then remains active and ready for further interaction. Continue using `openclaw browser snapshot/click/type` to interact with the authenticated session.
 
 ## Extending This Skill
 

@@ -11,6 +11,8 @@ services:
       CLAUDE_WEB_COOKIE: ${CLAUDE_WEB_COOKIE:-}
       RIPIO_EMAIL: ${RIPIO_EMAIL:-}
       RIPIO_PASSWORD: ${RIPIO_PASSWORD:-}
+      RIPIO_DCA_ASSET_ORIGIN: ${RIPIO_DCA_ASSET_ORIGIN:-}
+      RIPIO_DCA_ASSET_TARGET: ${RIPIO_DCA_ASSET_TARGET:-}
       TZ: ${OPENCLAW_TZ:-UTC}
     volumes:
       - openclaw-config:/home/node/.openclaw
@@ -62,6 +64,8 @@ services:
       CLAUDE_WEB_COOKIE: ${CLAUDE_WEB_COOKIE:-}
       RIPIO_EMAIL: ${RIPIO_EMAIL:-}
       RIPIO_PASSWORD: ${RIPIO_PASSWORD:-}
+      RIPIO_DCA_ASSET_ORIGIN: ${RIPIO_DCA_ASSET_ORIGIN:-}
+      RIPIO_DCA_ASSET_TARGET: ${RIPIO_DCA_ASSET_TARGET:-}
       TZ: ${OPENCLAW_TZ:-UTC}
     volumes:
       - openclaw-config:/home/node/.openclaw
