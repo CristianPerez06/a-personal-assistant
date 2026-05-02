@@ -88,7 +88,7 @@ docker compose -f ~/src/personal/openclaw/docker-compose.yml exec -u root opencl
     libnspr4 libnss3 libatk1.0-0 libatk-bridge2.0-0 \
     libdbus-1-3 libcups2 libxkbcommon0 libatspi2.0-0 \
     libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
-    libgbm1 libasound2 dbus && \
+    libgbm1 libasound2 libcairo2 libpango-1.0-0 dbus && \
     mkdir -p /run/dbus && dbus-daemon --system --fork"
 ```
 
@@ -112,106 +112,65 @@ docker compose -f ~/src/personal/openclaw/docker-compose.yml exec openclaw-gatew
 
 Verify: should print a path like `/home/node/.cache/ms-playwright/chromium-XXXX/chrome-linux/chrome`. If empty, step 2 failed.
 
-4. Configure OpenClaw to use it (use the path from step 3):
+4. Configure all browser settings in one batch. The Chromium path is auto-detected so it always matches whatever Playwright installed in step 2 (no hardcoded version):
 
 ```bash
-docker compose -f ~/src/personal/openclaw/docker-compose.yml exec openclaw-gateway \
-  node dist/index.js config set browser.executablePath /home/node/.cache/ms-playwright/chromium-1217/chrome-linux/chrome
+docker compose -f ~/src/personal/openclaw/docker-compose.yml exec openclaw-gateway bash -c '
+  CHROME=$(find /home/node/.cache/ms-playwright -name chrome -type f | head -1)
+  if [ -z "$CHROME" ]; then echo "ERROR: chrome not found — re-run step 2"; exit 1; fi
+  echo "Using Chromium at: $CHROME"
+  node dist/index.js config set browser.executablePath "$CHROME" &&
+  node dist/index.js config set browser.headless true &&
+  node dist/index.js config set browser.noSandbox true &&
+  node dist/index.js config set browser.enabled true &&
+  node dist/index.js config set browser.extraArgs '\''["--disable-features=dbus","--disable-gpu","--user-data-dir=/tmp/openclaw-chrome"]'\'' --strict-json
+'
 ```
 
-Verify:
+If you ever need to update **just** the path (e.g. after Playwright reinstalls Chromium at a different version), this is the standalone equivalent:
 
 ```bash
-docker compose -f ~/src/personal/openclaw/docker-compose.yml exec openclaw-gateway \
+docker compose -f ~/src/personal/openclaw/docker-compose.yml exec openclaw-gateway bash -c '
+  CHROME=$(find /home/node/.cache/ms-playwright -name chrome -type f | head -1)
+  echo "Setting executablePath to: $CHROME"
+  node dist/index.js config set browser.executablePath "$CHROME"
+'
+```
+
+What this sets:
+
+- `browser.executablePath` — Chromium binary path.
+- `browser.headless` — `true` (no display server inside containers).
+- `browser.noSandbox` — `true` (Chrome's sandbox doesn't work inside containers).
+- `browser.enabled` — `true` (turn the feature on).
+- `browser.extraArgs` — disables D-Bus and GPU to avoid container connection errors, and pins Chromium's user-data dir to `/tmp/openclaw-chrome`. `/tmp` is wiped on every container restart, so stale profile locks can't carry over between runs.
+
+Verify all five at once:
+
+```bash
+docker compose -f ~/src/personal/openclaw/docker-compose.yml exec openclaw-gateway bash -c '
   node dist/index.js config get browser.executablePath
-```
-
-5. Enable headless mode (no display server needed inside containers):
-
-```bash
-docker compose -f ~/src/personal/openclaw/docker-compose.yml exec openclaw-gateway \
-  node dist/index.js config set browser.headless true
-```
-
-Verify:
-
-```bash
-docker compose -f ~/src/personal/openclaw/docker-compose.yml exec openclaw-gateway \
   node dist/index.js config get browser.headless
-```
-
-6. Disable Chrome's sandbox (required inside containers):
-
-```bash
-docker compose -f ~/src/personal/openclaw/docker-compose.yml exec openclaw-gateway \
-  node dist/index.js config set browser.noSandbox true
-```
-
-Verify:
-
-```bash
-docker compose -f ~/src/personal/openclaw/docker-compose.yml exec openclaw-gateway \
   node dist/index.js config get browser.noSandbox
-```
-
-7. Enable the browser feature:
-
-```bash
-docker compose -f ~/src/personal/openclaw/docker-compose.yml exec openclaw-gateway \
-  node dist/index.js config set browser.enabled true
-```
-
-Verify:
-
-```bash
-docker compose -f ~/src/personal/openclaw/docker-compose.yml exec openclaw-gateway \
   node dist/index.js config get browser.enabled
+  node dist/index.js config get browser.extraArgs
+'
 ```
 
-8. Disable D-Bus for Chrome (prevents connection errors inside containers):
+5. Add a D-Bus environment variable to the gateway container.
 
-```bash
-docker compose -f ~/src/personal/openclaw/docker-compose.yml exec openclaw-gateway \
-  node dist/index.js config set browser.extraArgs '["--disable-features=dbus","--disable-gpu"]' --strict-json
-```
-
-How do I do this step?
-
-Open your `docker-compose.yml` file and find the `openclaw-gateway` service. Under its `environment` section, add the following line:
+Open `~/src/personal/openclaw/docker-compose.yml` (or your `docker-compose.override.yml`) and add this line under the `openclaw-gateway` service's `environment` section, alongside the existing entries:
 
 ```yaml
 DBUS_SESSION_BUS_ADDRESS: /dev/null
 ```
 
-It should look like this (with your other environment variables):
-
-```yaml
-environment:
-  HOME: /home/node
-  TERM: xterm-256color
-  ...
-  DBUS_SESSION_BUS_ADDRESS: /dev/null
-```
-
-After saving the file, restart the container for changes to take effect:
-
-```bash
-docker compose -f ~/src/personal/openclaw/docker-compose.yml restart openclaw-gateway
-```
-
 This disables D-Bus for Chrome to avoid connection errors inside the container.
 
-Verify:
+6. Apply both the config changes and the new env var by recreating the gateway:
 
 ```bash
-docker compose -f ~/src/personal/openclaw/docker-compose.yml exec openclaw-gateway \
-  node dist/index.js config get browser.extraArgs
-```
-
-9. Restart the gateway to apply the config:
-
-```bash
-docker compose -f ~/src/personal/openclaw/docker-compose.yml restart openclaw-gateway
+docker compose -f ~/src/personal/openclaw/docker-compose.yml up -d openclaw-gateway
 ```
 
 Verify:
@@ -222,16 +181,33 @@ docker compose -f ~/src/personal/openclaw/docker-compose.yml logs --tail 20 open
 
 Should show the gateway starting up without errors.
 
+7. End-to-end verification — confirm the full browser stack works before deploying skills:
+
+```bash
+docker compose -f ~/src/personal/openclaw/docker-compose.yml exec openclaw-gateway \
+  node dist/index.js browser navigate https://example.com
+```
+
+If this returns without error (it should print a snapshot/page result), every layer is wired up correctly: apt deps, Chromium binary, OpenClaw browser plugin, and CDP connection.
+
+If it fails, the most common causes — in order of likelihood — are:
+
+- **`browser.executablePath not found`** — Playwright reinstalled Chromium at a different version. Re-run the standalone path-setter command from step 4 and `restart` the gateway.
+- **Missing shared libraries** — apt deps got wiped by a `--force-recreate`. Re-run step 1.
+- **`Chrome CDP websocket... not reachable`** — usually means one of the above. Check `docker compose ... logs openclaw-gateway` for the actual error.
+
 ## Environment Variables
 
 Add environment variables for the DCA bot
 
-Add `RIPIO_EMAIL` and `RIPIO_PASSWORD` to the openclaw `.env` file (located next to `docker-compose.yml` in the openclaw repo):
+Add `RIPIO_EMAIL`, `RIPIO_PASSWORD`, `RIPIO_DCA_ASSET_ORIGIN`, and `RIPIO_DCA_ASSET_TARGET` to the openclaw `.env` file (located next to `docker-compose.yml` in the openclaw repo):
 
 ```bash
 ## Ripio (DCA bot)
 RIPIO_EMAIL=your-email@example.com
 RIPIO_PASSWORD=your-password
+RIPIO_DCA_ASSET_ORIGIN=your-origin-asset
+RIPIO_DCA_ASSET_TARGET=your-target-asset
 ```
 
 Then wire them into both services in the openclaw `docker-compose.yml` (`~/src/personal/openclaw/docker-compose.yml`). Add these lines to the `environment` section of both `openclaw-gateway` and `openclaw-cli`:
@@ -239,6 +215,8 @@ Then wire them into both services in the openclaw `docker-compose.yml` (`~/src/p
 ```yaml
 RIPIO_EMAIL: ${RIPIO_EMAIL:-}
 RIPIO_PASSWORD: ${RIPIO_PASSWORD:-}
+RIPIO_DCA_ASSET_ORIGIN: ${RIPIO_DCA_ASSET_ORIGIN:-}
+RIPIO_DCA_ASSET_TARGET: ${RIPIO_DCA_ASSET_TARGET:-}
 ```
 
 After editing `.env` and `docker-compose.yml`, restart the container:
@@ -250,7 +228,7 @@ docker compose -f ~/src/personal/openclaw/docker-compose.yml up -d
 Verify they're set:
 
 ```bash
-docker exec openclaw-openclaw-gateway-1 env | grep RIPIO
+docker exec openclaw-gateway env | grep RIPIO
 ```
 
 ## Deploying Skills
@@ -258,22 +236,22 @@ docker exec openclaw-openclaw-gateway-1 env | grep RIPIO
 Copy the skill folder contents (note the `/.` source and trailing `/` destination to avoid nesting):
 
 ```bash
-docker cp ~/src/personal/a-dca-bot/skills/ripio-login/. openclaw-openclaw-gateway-1:/home/node/.openclaw/workspace/skills/ripio-login/
+docker cp ~/src/personal/a-dca-bot/skills/. openclaw-gateway:/home/node/.openclaw/workspace/skills/
 ```
 
 To copy a single file instead:
 
 ```bash
 docker cp ~/src/personal/a-dca-bot/skills/ripio-login/SKILL.md \
-  openclaw-openclaw-gateway-1:/home/node/.openclaw/workspace/skills/ripio-login/SKILL.md
+  openclaw-gateway:/home/node/.openclaw/workspace/skills/ripio-login/SKILL.md
 ```
 
 ## Editing Files in the Container
 
 ```bash
   # Copy out
-  docker cp openclaw-openclaw-gateway-1:/home/node/.openclaw/openclaw.json ./openclaw.json
+  docker cp openclaw-gateway:/home/node/.openclaw/openclaw.json ./openclaw.json
 
   # Edit it locally, then copy back
-  docker cp ./openclaw.json openclaw-openclaw-gateway-1:/home/node/.openclaw/openclaw.json
+  docker cp ./openclaw.json openclaw-gateway:/home/node/.openclaw/openclaw.json
 ```
