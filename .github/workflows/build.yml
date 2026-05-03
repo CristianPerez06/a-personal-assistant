@@ -1,0 +1,79 @@
+# Build the a-personal-assistant image and publish to GHCR.
+#
+# Tags published per build:
+#   - latest                   moving pointer for casual consumers
+#   - <commit-sha>             immutable reference for pinning
+#
+# Image is multi-arch (linux/amd64 + linux/arm64) so it can run on:
+#   - regular x86_64 servers / Docker Desktop on Intel
+#   - Oracle Cloud Free Tier ARM (Ampere A1)
+#   - Apple Silicon (native, without Rosetta)
+#   - Raspberry Pi 4/5
+#
+# Auth uses the workflow's built-in GITHUB_TOKEN — no secrets to configure.
+# The package will appear under the GitHub repo's "Packages" tab; flip it
+# to public there once if you want pulls without `docker login`.
+
+name: build-and-publish
+
+on:
+  push:
+    branches:
+      - main
+      # Temporary: trigger on the feature branch so we can validate the
+      # workflow before merging. Remove this line after the first
+      # successful run on main.
+      - add-self-contained-docker-container
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # GHCR rejects mixed-case owner segments. github.repository preserves
+      # the user's casing (e.g. "CristianPerez06/a-personal-assistant"), so
+      # lowercase it before using it as an image name.
+      - name: Lowercase image name
+        run: echo "IMAGE_NAME_LC=$(echo '${{ env.IMAGE_NAME }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+
+      # QEMU + Buildx enable cross-arch builds. arm64 is built under
+      # emulation on the amd64 runner — slower but free, and the bot
+      # is not perf-sensitive at build time.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_LC }}:${{ github.sha }}
+          # GitHub Actions cache — keeps the apt + Playwright Chromium
+          # layers warm across runs so subsequent builds finish in
+          # seconds. mode=max caches all layers, not just the final one.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

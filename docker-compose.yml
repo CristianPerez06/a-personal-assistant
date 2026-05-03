@@ -1,82 +1,50 @@
+# Self-contained a-personal-assistant deployment.
+#
+# Workflow:
+#   1. cp .env.example .env  &&  $EDITOR .env       # fill in credentials + token
+#   2. docker compose up -d --build                 # build image + run
+#
+# Redeploy after pulling new skill changes:
+#   docker compose up -d --build
+#
+# Volumes persist across redeploys, so your pairing token and openclaw
+# config survive container recreations.
+name: a-personal-assistant
 services:
-  openclaw-gateway:
+  a-personal-assistant:
     build: .
+    image: a-personal-assistant:latest
+    container_name: a-personal-assistant
     environment:
       HOME: /home/node
       TERM: xterm-256color
-      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
-      OPENCLAW_ALLOW_INSECURE_PRIVATE_WS: ${OPENCLAW_ALLOW_INSECURE_PRIVATE_WS:-}
-      CLAUDE_AI_SESSION_KEY: ${CLAUDE_AI_SESSION_KEY:-}
-      CLAUDE_WEB_SESSION_KEY: ${CLAUDE_WEB_SESSION_KEY:-}
-      CLAUDE_WEB_COOKIE: ${CLAUDE_WEB_COOKIE:-}
+      DBUS_SESSION_BUS_ADDRESS: /dev/null
+      OPENCLAW_PLUGIN_STAGE_DIR: /var/lib/openclaw/plugin-runtime-deps
+      OPENCLAW_GATEWAY_TOKEN: "${OPENCLAW_GATEWAY_TOKEN:?OPENCLAW_GATEWAY_TOKEN must be set in .env - generate with openssl rand -hex 32}"
+      LLM_API_KEY: "${LLM_API_KEY:?LLM_API_KEY must be set in .env - the API key for the provider in LLM_MODEL}"
+      LLM_MODEL: "${LLM_MODEL:?LLM_MODEL must be set in .env - e.g. openai/gpt-5, openrouter/anthropic/claude-sonnet-4-6}"
+      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN must be set in .env - get one from BotFather}"
       RIPIO_EMAIL: ${RIPIO_EMAIL:-}
       RIPIO_PASSWORD: ${RIPIO_PASSWORD:-}
       RIPIO_DCA_ASSET_ORIGIN: ${RIPIO_DCA_ASSET_ORIGIN:-}
       RIPIO_DCA_ASSET_TARGET: ${RIPIO_DCA_ASSET_TARGET:-}
-      TZ: ${OPENCLAW_TZ:-UTC}
+      TZ: ${TZ:-UTC}
     volumes:
       - openclaw-config:/home/node/.openclaw
       - openclaw-workspace:/home/node/.openclaw/workspace
+      - openclaw-plugin-runtime-deps:/var/lib/openclaw/plugin-runtime-deps
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
-      - "${OPENCLAW_GATEWAY_PORT:-18789}:18789"
-      - "${OPENCLAW_BRIDGE_PORT:-18790}:18790"
+      # Bind to loopback only — the dashboard is for local use, and exposing
+      # it on the LAN/internet invites unauthenticated probes that trip the
+      # gateway's auth rate limiter and lock you out of your own dashboard.
+      - "127.0.0.1:18789:18789"
+      - "127.0.0.1:18790:18790"
     init: true
     restart: unless-stopped
-    command:
-      [
-        "node",
-        "dist/index.js",
-        "gateway",
-        "--bind",
-        "${OPENCLAW_GATEWAY_BIND:-lan}",
-        "--port",
-        "18789",
-      ]
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "node",
-          "-e",
-          "fetch('http://127.0.0.1:18789/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
-        ]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-
-  openclaw-cli:
-    build: .
-    network_mode: "service:openclaw-gateway"
-    cap_drop:
-      - NET_RAW
-      - NET_ADMIN
-    security_opt:
-      - no-new-privileges:true
-    environment:
-      HOME: /home/node
-      TERM: xterm-256color
-      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
-      OPENCLAW_ALLOW_INSECURE_PRIVATE_WS: ${OPENCLAW_ALLOW_INSECURE_PRIVATE_WS:-}
-      BROWSER: echo
-      CLAUDE_AI_SESSION_KEY: ${CLAUDE_AI_SESSION_KEY:-}
-      CLAUDE_WEB_SESSION_KEY: ${CLAUDE_WEB_SESSION_KEY:-}
-      CLAUDE_WEB_COOKIE: ${CLAUDE_WEB_COOKIE:-}
-      RIPIO_EMAIL: ${RIPIO_EMAIL:-}
-      RIPIO_PASSWORD: ${RIPIO_PASSWORD:-}
-      RIPIO_DCA_ASSET_ORIGIN: ${RIPIO_DCA_ASSET_ORIGIN:-}
-      RIPIO_DCA_ASSET_TARGET: ${RIPIO_DCA_ASSET_TARGET:-}
-      TZ: ${OPENCLAW_TZ:-UTC}
-    volumes:
-      - openclaw-config:/home/node/.openclaw
-      - openclaw-workspace:/home/node/.openclaw/workspace
-    stdin_open: true
-    tty: true
-    init: true
-    entrypoint: ["node", "dist/index.js"]
-    depends_on:
-      - openclaw-gateway
 
 volumes:
   openclaw-config:
   openclaw-workspace:
+  openclaw-plugin-runtime-deps:

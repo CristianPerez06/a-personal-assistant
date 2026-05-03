@@ -69,14 +69,24 @@ disconnected (1008): pairing required
 1. List pairing requests:
 
 ```bash
-docker compose exec openclaw-gateway node dist/index.js devices list
+docker exec a-personal-assistant openclaw devices list
 ```
 
 2. Approve the pending device using its ID:
 
 ```bash
-docker compose exec openclaw-gateway node dist/index.js devices approve THE_DOCKER_CONTAINER_ID_HERE
+docker exec a-personal-assistant openclaw devices approve THE_DOCKER_CONTAINER_ID_HERE
 ```
+
+### Telegram pairing
+
+When the Telegram bot prompts with `openclaw pairing approve telegram XXXXXXXX`, run it inside the container:
+
+```bash
+docker exec a-personal-assistant openclaw pairing approve telegram XXXXXXXX
+```
+
+Codes are short-lived — re-trigger pairing from Telegram if you see `No pending pairing request found for code: ...`.
 
 ## Browser Setup
 
@@ -198,12 +208,12 @@ If it fails, the most common causes — in order of likelihood — are:
 
 ## Environment Variables
 
-Add environment variables for the DCA bot
+Add environment variables for the a-personal-assistant
 
 Add `RIPIO_EMAIL`, `RIPIO_PASSWORD`, `RIPIO_DCA_ASSET_ORIGIN`, and `RIPIO_DCA_ASSET_TARGET` to the openclaw `.env` file (located next to `docker-compose.yml` in the openclaw repo):
 
 ```bash
-## Ripio (DCA bot)
+## Ripio (a-personal-assistant)
 RIPIO_EMAIL=your-email@example.com
 RIPIO_PASSWORD=your-password
 RIPIO_DCA_ASSET_ORIGIN=your-origin-asset
