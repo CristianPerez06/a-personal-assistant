@@ -17,6 +17,11 @@
 
 set -e
 
+# Ensure Chromium is running. `browser start` is a no-op if already up;
+# without it the agent's planning step can see status.running=false between
+# script runs and bail with a misleading "browser is not running" reply.
+openclaw browser start >/dev/null
+
 # --- Configuration ---
 RIPIO_APP_HOST="https://app.ripio.com"
 

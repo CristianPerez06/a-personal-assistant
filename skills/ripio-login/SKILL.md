@@ -57,8 +57,11 @@ bash scripts/ripio-login.sh --2fa <totp_code>
 
 - This assumes the browser is already on the 2FA screen from Step 1.
 - Do **not** ask for the TOTP code upfront; only ask when 2FA is actually required.
+- Exit code `0`: Ripio redirected to the app — login complete.
+- Exit code `4`: Ripio showed the magic-link email screen after 2FA — proceed to Step 3 (same as after Step 1).
+- Exit code `5`: unexpected state after 2FA (still on auth without a known signal) — report per Failure Handling.
 
-### Step 3 — Magic link verification (only if Step 1 exited with code 4)
+### Step 3 — Magic link verification (only if Step 1 or Step 2 exited with code 4)
 
 Ask the user to check their email for the Ripio verification link. Tell them to send **only the token** (the UUID at the end of the URL, e.g. `5b91a6ba-dfb9-466f-86f4-645cd6c344eb`), **not the full URL**. This avoids Telegram's link preview consuming the single-use link.
 

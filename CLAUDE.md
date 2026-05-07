@@ -1,6 +1,6 @@
-# a-dca-bot
+# a-personal-assistant
 
-A DCA (Dollar Cost Averaging) bot built on OpenClaw. Uses OpenClaw's browser automation and skills system to automate Ripio exchange operations.
+A personal assistant built on OpenClaw. Uses OpenClaw's browser automation and skills system; current capabilities include automating Ripio exchange operations (DCA / login / buy).
 
 ## Project Structure
 
