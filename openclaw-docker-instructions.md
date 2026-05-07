@@ -10,63 +10,59 @@ hand" workflow, see `openclaw-instructions.md`.
 
 ## Prerequisites
 
-1. Clean up previous openclaw install:
+1. **Docker Desktop** (or any Docker engine + Compose v2) running.
+2. **Nothing else holding port 18789** — the gateway will fail to bind
+   otherwise. On a fresh machine this is usually a non-issue. See "Port
+   18789 already in use" below if you previously ran the upstream OpenClaw
+   setup script on this machine.
 
-   ```bash
-   rm -rf ~/.openclaw
-   ```
+That's it. The image is pulled from GHCR; no source builds, no
+`openclaw:local` step, no Node toolchain on the host.
 
-2. **Docker Desktop** running.
-3. **`openclaw:local` base image** built once on this machine. See
-   `~/src/personal/openclaw` and its `scripts/docker/setup.sh`. Verify:
+### Port 18789 already in use
 
-   ```bash
-   docker images openclaw:local
-   ```
+Skip this section if you've never run the upstream OpenClaw setup script
+(`~/src/personal/openclaw/scripts/docker/setup.sh`) on this machine.
 
-   Should print one row. If empty, build the base image first.
+That script leaves behind a host-side `openclaw-gateway` Node process
+wrapped in a launchd agent (`ai.openclaw.gateway`) that auto-respawns on
+every login — a one-shot `kill` won't stick. Clean it up:
 
-4. **Nothing else holding port 18789.** The upstream openclaw setup script
-   builds the image _and_ spawns both a container _and_ a host-side
-   `openclaw-gateway-1` node process as smoke tests. The host process is
-   wrapped in a launchd agent (`ai.openclaw.gateway`) that auto-respawns
-   it on every login — so a one-shot `kill` won't stick. Only the image is
-   needed here.
+```bash
+# Tear down the upstream openclaw compose stack if present
+docker compose -f ~/src/personal/openclaw/docker-compose.yml down --remove-orphans 2>/dev/null || true
 
-   ```bash
-   # Remove the leftover container(s) from the upstream setup script. The
-   # script brings the gateway up via `docker compose`, so the real name is
-   # `openclaw-openclaw-gateway-1` (project prefix + service + index) — not
-   # `openclaw-gateway`. Tearing the stack down by compose file is the most
-   # robust way to clean it up regardless of naming.
-   docker compose -f ~/src/personal/openclaw/docker-compose.yml down --remove-orphans 2>/dev/null || true
+# Disable and unload the launchd agent that auto-respawns the host gateway
+PLIST=~/Library/LaunchAgents/ai.openclaw.gateway.plist
+if [ -f "$PLIST" ]; then
+  launchctl unload "$PLIST" 2>/dev/null || true
+  launchctl disable "gui/$(id -u)/ai.openclaw.gateway" 2>/dev/null || true
+  # Optional — delete the plist entirely so it can't be re-loaded:
+  # rm "$PLIST"
+fi
 
-   # Disable and unload the launchd agent that auto-respawns the host gateway
-   PLIST=~/Library/LaunchAgents/ai.openclaw.gateway.plist
-   if [ -f "$PLIST" ]; then
-     launchctl unload "$PLIST" 2>/dev/null || true
-     launchctl disable "gui/$(id -u)/ai.openclaw.gateway" 2>/dev/null || true
-     # Optional — delete the plist entirely so it can't be re-loaded:
-     # rm "$PLIST"
-   fi
+# Kill any remaining non-Docker process holding 18789
+lsof -nP -iTCP:18789 -sTCP:LISTEN | awk 'NR>1 && $1 !~ /docker|com\.docke/ {print $2}' \
+  | xargs -r kill
+```
 
-   # Kill any remaining non-Docker process holding 18789
-   lsof -nP -iTCP:18789 -sTCP:LISTEN | awk 'NR>1 && $1 !~ /docker|com\.docke/ {print $2}' \
-     | xargs -r kill
-   ```
+Verify nothing user-owned is left on 18789 — only `com.docker` (or empty
+if Docker isn't running yet):
 
-   Verify nothing the user owns is left on 18789 — the only listener should
-   be a `com.docker` process (or empty if Docker isn't running yet):
-
-   ```bash
-   launchctl list | grep openclaw           # should print nothing
-   lsof -nP -iTCP:18789 -sTCP:LISTEN        # com.docker only, or empty
-   ```
+```bash
+launchctl list | grep openclaw           # should print nothing
+lsof -nP -iTCP:18789 -sTCP:LISTEN        # com.docker only, or empty
+```
 
 ## First-Time Setup
 
+The image is published at
+`ghcr.io/cristianperez06/a-personal-assistant:latest` (multi-arch
+amd64+arm64, public). On a clean machine:
+
 ```bash
-cd ~/src/personal/a-personal-assistant
+git clone https://github.com/CristianPerez06/a-personal-assistant.git
+cd a-personal-assistant
 
 # 1. Create your env file from the template
 cp .env.example .env
@@ -84,15 +80,31 @@ sed -i.bak "s|^OPENCLAW_GATEWAY_TOKEN=.*|OPENCLAW_GATEWAY_TOKEN=${TOKEN}|" .env 
 #      - asset config (RIPIO_DCA_ASSET_ORIGIN / _TARGET)
 $EDITOR .env
 
-# 4. Build and start
-docker compose up -d --build
+# 4. Pull the published image and start
+docker compose pull
+docker compose up -d
 ```
 
 `docker compose up` will refuse to start if any of `OPENCLAW_GATEWAY_TOKEN`,
 `LLM_API_KEY`, `LLM_MODEL`, or `TELEGRAM_BOT_TOKEN` are missing.
 
-First build downloads ~150 MB (Chromium) and takes 3–5 minutes. Subsequent
-rebuilds finish in seconds because the apt + chromium layers are cached.
+First pull downloads ~1.3 GB (Chromium + system libs included). Subsequent
+`pull && up -d` cycles only fetch changed layers.
+
+### Build from source instead
+
+If you've made local changes to the Dockerfile, entrypoint, or skills and
+want to test them before pushing, swap the last command for:
+
+```bash
+docker compose up -d --build
+```
+
+This builds from the `Dockerfile` in this checkout (using the pinned
+upstream OpenClaw base image from GHCR) and tags the result with the
+same GHCR coordinate as the published image — so the next plain
+`docker compose up -d` keeps using your local build until the next
+`pull` overwrites it.
 
 The entrypoint will print the dashboard URL with your token embedded right
 before the gateway starts. Check the startup logs:
@@ -211,7 +223,9 @@ for the token is your `.env` file.
 
 ## What the Image Contains
 
-Built from `Dockerfile`, on top of `openclaw:local`:
+Built from `Dockerfile`, on top of the pinned upstream OpenClaw image
+(`ghcr.io/openclaw/openclaw:2026.4.27`). Bump the `FROM` tag in the
+Dockerfile when intentionally upgrading OpenClaw.
 
 - Chromium system libs (`libnspr4`, `libnss3`, `libcairo2`, `libpango-1.0-0`, etc.)
 - Playwright Chromium binary at `/home/node/.cache/ms-playwright/chromium-XXXX/chrome-linux/chrome`
@@ -244,16 +258,37 @@ manually.
   docker exec -it a-personal-assistant bash
 ```
 
-### Update skills
+### Update to a newer published image
 
-Edit anything under `skills/`, then:
+When new commits land on `main`, the GitHub Actions workflow rebuilds and
+republishes `ghcr.io/cristianperez06/a-personal-assistant:latest`. To
+update an existing deployment:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+Compose recreates the container if the pulled image has a new digest;
+otherwise it's a no-op. Volumes (config, workspace, plugin runtime deps)
+survive the recreate.
+
+> **Pinning to a specific build:** for production deploys where you don't
+> want surprise updates, change the `image:` line in `docker-compose.yml`
+> from `:latest` to `:<commit-sha>`. The workflow tags every build with
+> its commit SHA in addition to `latest`.
+
+### Update skills (local-dev iteration)
+
+Edit anything under `skills/`, then rebuild from source so the entrypoint
+re-syncs the new files into the workspace volume:
 
 ```bash
 docker compose up -d --build
 ```
 
-The entrypoint will re-sync the new skill files into the workspace volume on
-the next start.
+For changes that have already landed on `main` and been published, just
+use the "Update to a newer published image" recipe above instead.
 
 ### Rotate the LLM API key, switch providers, or rotate the Telegram bot token
 
@@ -527,22 +562,17 @@ contains Chromium:
 docker exec a-personal-assistant find /home/node/.cache/ms-playwright -name chrome -type f
 ```
 
-## Future: Publish to GHCR
+## How the Published Image Gets Built
 
-When ready to deploy on multiple machines without checking out source:
+`.github/workflows/build.yml` rebuilds the image on every push to `main`
+(plus manual `workflow_dispatch` runs) and pushes to GHCR with two tags:
 
-1. Add `.github/workflows/build.yml` — build on push to `main`, push to
-   `ghcr.io/<your-user>/a-personal-assistant:latest`.
-2. Switch `docker-compose.yml` from `build: .` to
-   `image: ghcr.io/<your-user>/a-personal-assistant:latest`.
-3. Redeploy on a new machine becomes:
+- `:latest` — moving pointer for casual consumers
+- `:<commit-sha>` — immutable reference, useful for pinning a deploy to
+  a known build
 
-   ```bash
-   git clone <repo> && cd a-personal-assistant
-   cp .env.example .env && $EDITOR .env
-   docker compose pull && docker compose up -d
-   ```
-
-The `openclaw:local` base image dependency would also need to be solved for
-true portability — either also publish that image, or change the Dockerfile's
-`FROM` line to a published OpenClaw image.
+The build is multi-arch (`linux/amd64` + `linux/arm64`) so the same image
+runs on x86 servers, Apple Silicon, Raspberry Pi, and Oracle Cloud Free
+Tier ARM. Auth uses the workflow's built-in `GITHUB_TOKEN` — no secrets
+configured anywhere. The package's visibility is set to public on GHCR,
+so consumers don't need `docker login ghcr.io`.
