@@ -1,11 +1,19 @@
 # Self-contained a-personal-assistant deployment.
 #
-# Workflow:
-#   1. cp .env.example .env  &&  $EDITOR .env       # fill in credentials + token
-#   2. docker compose up -d --build                 # build image + run
+# Two supported workflows — same compose file, your choice:
 #
-# Redeploy after pulling new skill changes:
-#   docker compose up -d --build
+#   A. Pull a published image from GHCR (no source build required):
+#        cp .env.example .env  &&  $EDITOR .env
+#        docker compose pull
+#        docker compose up -d
+#
+#   B. Build locally from this checkout (dev workflow, requires Dockerfile):
+#        cp .env.example .env  &&  $EDITOR .env
+#        docker compose up -d --build
+#
+# `image:` and `build:` are both set: `--build` builds from source and tags
+# the result with the GHCR name; `pull` fetches the published image; plain
+# `up -d` uses whichever is already present locally.
 #
 # Volumes persist across redeploys, so your pairing token and openclaw
 # config survive container recreations.
@@ -13,7 +21,7 @@ name: a-personal-assistant
 services:
   a-personal-assistant:
     build: .
-    image: a-personal-assistant:latest
+    image: ghcr.io/cristianperez06/a-personal-assistant:latest
     container_name: a-personal-assistant
     environment:
       HOME: /home/node
