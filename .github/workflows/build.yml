@@ -20,10 +20,6 @@ on:
   push:
     branches:
       - main
-      # Temporary: trigger on the feature branch so we can validate the
-      # workflow before merging. Remove this line after the first
-      # successful run on main.
-      - add-self-contained-docker-container
   workflow_dispatch:
 
 permissions:
