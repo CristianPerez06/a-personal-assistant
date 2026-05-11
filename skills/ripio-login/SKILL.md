@@ -33,13 +33,13 @@ echo "RIPIO_EMAIL=${RIPIO_EMAIL:-NOT_SET}" && echo "RIPIO_PASSWORD=${RIPIO_PASSW
 If both are set, pass them as arguments:
 
 ```bash
-bash scripts/ripio-login.sh "$RIPIO_EMAIL" "$RIPIO_PASSWORD"
+bash /home/node/.openclaw/workspace/skills/ripio-login/scripts/ripio-login.sh "$RIPIO_EMAIL" "$RIPIO_PASSWORD"
 ```
 
 If either variable is missing, ask the user for the missing value(s) and pass them directly:
 
 ```bash
-bash scripts/ripio-login.sh <email> <password>
+bash /home/node/.openclaw/workspace/skills/ripio-login/scripts/ripio-login.sh <email> <password>
 ```
 
 - Exit code `0`: login succeeded (no 2FA required).
@@ -52,7 +52,7 @@ bash scripts/ripio-login.sh <email> <password>
 Ask the user for their current 6-digit TOTP code, then run:
 
 ```bash
-bash scripts/ripio-login.sh --2fa <totp_code>
+bash /home/node/.openclaw/workspace/skills/ripio-login/scripts/ripio-login.sh --2fa <totp_code>
 ```
 
 - This assumes the browser is already on the 2FA screen from Step 1.
@@ -68,7 +68,7 @@ Ask the user to check their email for the Ripio verification link. Tell them to 
 Then run the script with just the token:
 
 ```bash
-bash scripts/ripio-login.sh --magic-link <token>
+bash /home/node/.openclaw/workspace/skills/ripio-login/scripts/ripio-login.sh --magic-link <token>
 ```
 
 - Do **not** ask for the token upfront; only ask when the magic link step is actually required.

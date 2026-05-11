@@ -221,6 +221,38 @@ persist to `openclaw.json`. So `cat /home/node/.openclaw/openclaw.json`
 won't show a token field; that's expected and correct. The source of truth
 for the token is your `.env` file.
 
+## Skill Script Paths
+
+The `ripio-login` and `ripio-buy` skill markdown files reference their helper
+scripts via **absolute Docker container paths**:
+
+```
+/home/node/.openclaw/workspace/skills/<skill>/scripts/<script>.sh
+```
+
+These paths are correct out-of-the-box for any Docker deploy of this image —
+the entrypoint syncs `/opt/a-personal-assistant/skills/` into
+`/home/node/.openclaw/workspace/skills/` on every start, so the absolute
+paths always resolve inside the container.
+
+**Heads-up — before deploying outside Docker** (e.g. running the gateway
+directly on the host for local dev), the workspace is at a different absolute
+location (typically `~/.openclaw/workspace/skills/`). In that case, update
+the script paths inside the following files to match your environment
+**before** the agent invokes the skills:
+
+- `skills/ripio-login/SKILL.md` — four occurrences of
+  `bash /home/node/.openclaw/workspace/skills/ripio-login/scripts/ripio-login.sh`
+- `skills/ripio-buy/SKILL.md` — two occurrences of
+  `bash /home/node/.openclaw/workspace/skills/ripio-buy/scripts/ripio-buy.sh`
+
+Why absolute paths instead of `bash scripts/ripio-login.sh`: the agent (LLM)
+runs scripts via its shell tool and doesn't have a guaranteed working
+directory. Relative paths were observed to mis-resolve under `gpt-5` (it
+looked for `scripts/...` under the workspace root rather than under the
+skill folder). Absolute paths remove the ambiguity, at the cost of being
+environment-specific.
+
 ## What the Image Contains
 
 Built from `Dockerfile`, on top of the pinned upstream OpenClaw image

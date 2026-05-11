@@ -36,7 +36,7 @@ echo "RIPIO_DCA_ASSET_TARGET=${RIPIO_DCA_ASSET_TARGET:-NOT_SET}"
 Then run the buy:
 
 ```bash
-bash scripts/ripio-buy.sh
+bash /home/node/.openclaw/workspace/skills/ripio-buy/scripts/ripio-buy.sh
 ```
 
 Exit codes:
@@ -52,7 +52,7 @@ Exit codes:
 Dump a snapshot of the **current page** without placing any order — useful while iterating on selectors. Run this after `ripio-login` succeeds; the script will verify the URL is on `https://app.ripio.com` before dumping:
 
 ```bash
-bash scripts/ripio-buy.sh --inspect
+bash /home/node/.openclaw/workspace/skills/ripio-buy/scripts/ripio-buy.sh --inspect
 ```
 
 ## Failure Handling
