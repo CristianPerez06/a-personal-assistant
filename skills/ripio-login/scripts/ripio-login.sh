@@ -126,49 +126,45 @@ if [ "$1" = "--2fa" ]; then
 
   echo "Submitting 2FA code…"
 
-  # Fill all 6 OTP fields in a single evaluate call. Doing one round-trip
-  # per digit (≈12 round-trips with the clear+type pattern) takes ~25-30s,
-  # which exceeds the 30-second TOTP validity window — codes expire before
-  # submit. One evaluate keeps the whole fill under a second.
-  FILL_RESULT=$(openclaw browser evaluate --fn "() => {
+  # Fill all 6 OTP fields AND click submit in a single evaluate call.
+  # Two reasons to bundle:
+  #   - Each openclaw round-trip is 1-3s on a constrained VM; combining
+  #     fill+click saves one round-trip.
+  #   - Every second between fill and submit eats into the 30-60s TOTP
+  #     window. Doing it atomically inside one JS execution is the tightest
+  #     we can get.
+  SUBMIT_RESULT=$(openclaw browser evaluate --fn "() => {
     const digits = '$TOTP';
-    const inputs = [];
     for (let i = 1; i <= 6; i++) {
-      const el = document.getElementById('login_otp_input_' + i);
-      if (!el) return 'missing_input:login_otp_input_' + i;
-      inputs.push(el);
+      if (!document.getElementById('login_otp_input_' + i)) {
+        return 'missing_input:login_otp_input_' + i;
+      }
     }
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-    for (let i = 0; i < 6; i++) {
-      setter.call(inputs[i], digits[i]);
-      inputs[i].dispatchEvent(new Event('input', { bubbles: true }));
-      inputs[i].dispatchEvent(new Event('change', { bubbles: true }));
+    for (let i = 1; i <= 6; i++) {
+      const el = document.getElementById('login_otp_input_' + i);
+      setter.call(el, digits[i-1]);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
     }
-    return 'ok';
+    const btn = document.getElementById('login_submit_button');
+    if (!btn) return 'submit_not_found';
+    if (btn.hasAttribute('disabled')) return 'submit_disabled';
+    btn.click();
+    return 'submitted';
   }")
-  case "$FILL_RESULT" in
-    '"ok"'|'ok') ;;
-    *) echo "2FA screen not loaded — OTP inputs not found ($FILL_RESULT)." >&2; exit 1 ;;
+  case "$SUBMIT_RESULT" in
+    '"submitted"'|'submitted') ;;
+    *missing_input*) echo "2FA screen not loaded — OTP inputs not found ($SUBMIT_RESULT)." >&2; exit 1 ;;
+    *submit_disabled*) echo "Submit button stayed disabled after fill — code rejected at the input level ($SUBMIT_RESULT)." >&2; exit 1 ;;
+    *) echo "2FA fill+submit failed: $SUBMIT_RESULT" >&2; exit 1 ;;
   esac
 
-  # Click Ingresar immediately — every second between fill and submit
-  # eats into the TOTP window. The submit button reuses the same id
-  # (`login_submit_button`) as the email/password page.
-  if ! click_by_id "login_submit_button"; then
-    echo "Couldn't click the submit button on the 2FA screen." >&2
-    exit 1
-  fi
-
-  # Post-2FA Ripio may redirect to app, or show the magic-link screen.
-  # Do not exit 0 until we confirm app — otherwise downstream skills think
-  # we're logged in while still on auth.
-  for _attempt in 1 2 3 4 5; do
-    sleep 2
-    SNAP=$(openclaw browser snapshot)
-    if echo "$SNAP" | grep -qi "Te enviamos un mail"; then
-      echo "Valid credentials. Magic link sent to your email — paste the token to continue."
-      exit 4
-    fi
+  # Poll the URL — cheap (~50-100ms per call) compared to a full accessibility
+  # snapshot. Only fall back to a snapshot for the final state diagnosis if
+  # the URL never advances to app.ripio.com.
+  for _attempt in 1 2 3 4 5 6 7 8 9 10; do
+    sleep 1
     CURR_URL=$(openclaw browser evaluate --fn '() => window.location.href' | tr -d '"')
     case "$CURR_URL" in
       https://app.ripio.com*)
@@ -178,18 +174,12 @@ if [ "$1" = "--2fa" ]; then
     esac
   done
 
+  # URL never advanced — diagnose via snapshot (single, expensive call done once).
   SNAP=$(openclaw browser snapshot)
   if echo "$SNAP" | grep -qi "Te enviamos un mail"; then
     echo "Valid credentials. Magic link sent to your email — paste the token to continue."
     exit 4
   fi
-  CURR_URL=$(openclaw browser evaluate --fn '() => window.location.href' | tr -d '"')
-  case "$CURR_URL" in
-    https://app.ripio.com*)
-      echo "Signed in."
-      exit 0
-      ;;
-  esac
   echo "2FA submitted but sign-in did not complete — still on auth or unknown state." >&2
   echo "$SNAP" | grep "heading" | head -10 >&2
   exit 5
