@@ -5,9 +5,12 @@ A personal assistant built on OpenClaw. Uses OpenClaw's browser automation and s
 ## Project Structure
 
 - `skills/` — OpenClaw skills deployed to the gateway container
+  - `_template/` — skeleton for new skills, with reusable helpers (`fill_by_id`, `click_by_id`, `wait_for_url_stable`) in `scripts/_template.sh`
   - `ripio-login/` — Automated Ripio login flow (email/password + 2FA + magic link)
   - `ripio-buy/` — Single buy action: buys the configured asset with the max available balance. Assumes logged in.
   - `ripio-dca/` — Orchestrator (markdown only): invokes `ripio-login` then `ripio-buy` for the full DCA flow.
+- `docs/recording-a-skill.md` — Contributor walkthrough: Playwright codegen → LLM translation → installed skill
+- `prompts/skill-from-codegen.md` — The templated LLM prompt used by the workflow above; encodes every skill convention this repo follows
 - `openclaw-instructions.md` — Setup guide for the OpenClaw Docker environment
 - `docker-compose.yml` — Extends the main OpenClaw docker-compose with Ripio env vars
 
@@ -54,6 +57,16 @@ Defined in `.env` (see `.env.example`):
 - `RIPIO_DCA_ASSET_TARGET` — ticker of the asset the DCA skill should buy (e.g. `BTC`)
 
 These are passed to both `openclaw-gateway` and `openclaw-cli` services via docker-compose.
+
+## Contributing a New Skill
+
+When a user asks for help adding a new automation (or a non-dev contributor asks how to add one), route them through the documented workflow rather than hand-writing the skill from scratch:
+
+1. Point them at `docs/recording-a-skill.md` for the end-to-end walkthrough.
+2. The translation step uses `prompts/skill-from-codegen.md` — that prompt already encodes every convention this repo follows (frontmatter shape, exit-code conventions, the React-safe `fill_by_id` pattern, `Failure Handling` boilerplate, etc.). Reuse it instead of paraphrasing.
+3. New skills should start from `skills/_template/` (copy the directory, rename, fill in placeholders) so they pick up the helper functions without copy-paste drift.
+
+If you're authoring a skill directly (without the codegen workflow), still follow `skills/_template/` and the conventions documented in the prompt template — they're load-bearing for the agent's ability to invoke skills correctly.
 
 ## Development Notes
 
