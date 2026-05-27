@@ -274,6 +274,8 @@ Dockerfile when intentionally upgrading OpenClaw.
     `<provider>` + `telegram` plugin enables
   - Set `channels.telegram.botToken` as a SecretRef pointing at
     `$TELEGRAM_BOT_TOKEN`, plus `channels.telegram.enabled`
+  - Disable heartbeats (`agents.defaults.heartbeat.every = "0m"`) — see
+    [Heartbeats](#heartbeats-disabled-by-default)
   - Print the dashboard URL with the token
   - `exec runuser -u node -- node dist/index.js gateway --bind lan --port 18789`
 
@@ -281,6 +283,45 @@ Every container start guarantees a known-good config and the latest baked-in
 skills. You should never need to run `openclaw configure`,
 `openclaw config set`, `docker cp skills/...`, or `docker exec ... chown`
 manually.
+
+## Heartbeats: disabled by default
+
+OpenClaw heartbeats are scheduled LLM calls that fire on an interval (default
+`30m`/`1h`) to let the agent do proactive work — scan inboxes, run
+`HEARTBEAT.md` task lists, ping you with reminders. Each heartbeat ships the
+**full tool catalog** as input tokens, so a single tick on `gpt-5` with
+medium reasoning lands around **~30k tokens**, even if the reply is just
+`HEARTBEAT_OK`. Left at the default `1h`, that's ~5M tokens/week of pure
+overhead.
+
+This assistant is **request/response only** — every action is triggered by a
+Telegram message, which already wakes the container. There's no
+`HEARTBEAT.md` and no proactive workload, so the entrypoint pins
+`agents.defaults.heartbeat.every` to `"0m"` on every start.
+
+### Re-enabling heartbeats
+
+If you ever add a proactive task (e.g. "every morning, summarize overnight
+Ripio price action"), don't just flip the default — that wakes *all* agents.
+Instead, enable it for a single agent:
+
+```bash
+docker exec a-personal-assistant node /app/dist/index.js config set \
+  'agents.list[0].heartbeat' \
+  '{"every": "1h", "model": "gpt-5-mini", "lightContext": true, "isolatedSession": true}' \
+  --strict-json
+docker restart a-personal-assistant
+```
+
+The recommended knobs to keep cost bounded:
+
+- `model`: override to a cheap model (e.g. `gpt-5-mini`) — heartbeats rarely
+  need the flagship.
+- `lightContext: true`: skip bootstrap context; only `HEARTBEAT.md` loads.
+- `isolatedSession: true`: don't replay session history into the tick.
+
+See `~/src/personal/openclaw/docs/gateway/heartbeat.md` in the upstream
+checkout for the full schema.
 
 ## Common Tasks
 

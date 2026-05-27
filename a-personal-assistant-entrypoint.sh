@@ -13,8 +13,9 @@
 #   3. Pin gateway.mode + browser.* config (as node).
 #   4. Bake credentials from env: OpenRouter API key into auth-profiles.json,
 #      Telegram bot token into openclaw.json as a SecretRef pointing at env.
-#   5. Print the dashboard URL with the token included.
-#   6. exec the original CMD (gateway) as node.
+#   5. Disable heartbeats (request/response bot — no proactive runs needed).
+#   6. Print the dashboard URL with the token included.
+#   7. exec the original CMD (gateway) as node.
 set -e
 
 log() { echo "[a-personal-assistant-entrypoint] $*"; }
@@ -80,6 +81,14 @@ runuser -u node -- node /app/dist/index.js config set "auth.profiles.${LLM_PROVI
 runuser -u node -- node /app/dist/index.js config set agents.defaults.model.primary "$LLM_MODEL" >/dev/null
 runuser -u node -- node /app/dist/index.js config set agents.defaults.models "{\"$LLM_MODEL\":{}}" --strict-json --replace >/dev/null
 runuser -u node -- node /app/dist/index.js config set "plugins.entries.${LLM_PROVIDER}.enabled" true >/dev/null
+
+log "Disabling heartbeat (this assistant is request/response only — no proactive runs)"
+# Heartbeats fire scheduled LLM calls with the full tool catalog attached
+# (~30k tokens/call on gpt-5). For a Telegram-driven request/response bot
+# they burn credits for no benefit — the bot already wakes on every user
+# message. Re-enable per-agent in agents.list[].heartbeat if you ever need
+# proactive behavior.
+runuser -u node -- node /app/dist/index.js config set agents.defaults.heartbeat.every "0m" >/dev/null
 
 log "Pinning Telegram bot token and plugin enable"
 # Telegram bot token: stored as a SecretRef so the literal token never lands
