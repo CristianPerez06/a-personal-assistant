@@ -31,7 +31,7 @@ services:
       OPENCLAW_GATEWAY_TOKEN: "${OPENCLAW_GATEWAY_TOKEN:?OPENCLAW_GATEWAY_TOKEN must be set in .env - generate with openssl rand -hex 32}"
       LLM_API_KEY: "${LLM_API_KEY:?LLM_API_KEY must be set in .env - the API key for the provider in LLM_MODEL}"
       LLM_MODEL: "${LLM_MODEL:?LLM_MODEL must be set in .env - e.g. openai/gpt-5, openrouter/anthropic/claude-sonnet-4-6}"
-      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN must be set in .env - get one from BotFather}"
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       RIPIO_EMAIL: ${RIPIO_EMAIL:-}
       RIPIO_PASSWORD: ${RIPIO_PASSWORD:-}
       RIPIO_DCA_ASSET_ORIGIN: ${RIPIO_DCA_ASSET_ORIGIN:-}

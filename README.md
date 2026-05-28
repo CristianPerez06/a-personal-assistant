@@ -1,134 +1,87 @@
 # a-personal-assistant
 
-A personal assistant built on [OpenClaw](https://github.com/openclaw/openclaw). Add browser-automation skills (logins, recurring buys, balance checks, anything you'd otherwise do by hand) and trigger them through an OpenClaw-connected interface (dashboard, Telegram bot, etc.).
+Your own personal assistant, running on your Mac. It can log into websites, perform recurring tasks (buying crypto on a schedule, checking balances, anything you'd otherwise do by hand), and you talk to it through a local dashboard or a Telegram bot. Built on [OpenClaw](https://github.com/openclaw/openclaw).
 
-This repo is designed to be **forked and run locally** — your credentials never leave your machine.
-
-## What's here
-
-- **Browser-automation skills** under `skills/`. Each one is a small folder with a `SKILL.md` (describes what it does and when to use it) and a `scripts/` directory (the bash + JS that drives the browser via OpenClaw).
-- **Currently shipped skills:**
-  - `ripio-login` — automates Ripio login including 2FA and magic-link verification.
-  - `ripio-buy` — buys the configured asset with the maximum available fiat balance.
-  - `ripio-dca` — orchestrator: runs `ripio-login` then `ripio-buy` end-to-end.
-- **A workflow for adding new skills** without writing code by hand — see [Authoring a new skill](#authoring-a-new-skill) below.
-
-## Prerequisites
-
-- **Docker Desktop** — [docs.docker.com/desktop](https://docs.docker.com/desktop/)
-- **The OpenClaw repo** cloned at `~/src/personal/openclaw/` (the `docker-compose.yml` in this repo extends OpenClaw's compose file via that path):
-
-  ```bash
-  git clone https://github.com/openclaw/openclaw.git ~/src/personal/openclaw
-  ```
-
-- **Node.js 20+** on your host — only needed if you plan to author new skills (for Playwright's recorder). Not required to just run existing skills.
+Everything runs **on your machine**. Your passwords and API keys never leave it.
 
 ## Quick start
 
 ```bash
-# 1. Clone this repo
-git clone <this-repo-url> a-personal-assistant
+git clone https://github.com/cristianperez06/a-personal-assistant.git
 cd a-personal-assistant
-
-# 2. Configure credentials
-cp .env.example .env
-# Edit .env — fill in OPENCLAW_GATEWAY_TOKEN, LLM_API_KEY, RIPIO_EMAIL, etc.
-
-# 3. Start the OpenClaw gateway
-docker compose -f ~/src/personal/openclaw/docker-compose.yml up -d
-
-# 4. Deploy this repo's skills into the running container
-docker cp skills/. openclaw-openclaw-gateway-1:/home/node/.openclaw/workspace/skills/
+./bootstrap.sh
 ```
 
-Open the dashboard at [http://localhost:18789/](http://localhost:18789/) to interact with the agent.
+That's it. The script installs everything it needs (Homebrew, Node, Docker Desktop, Chromium) and walks you through configuration. When it finishes, the dashboard opens at <http://127.0.0.1:18789/>.
 
-If the gateway rejects you with a token-mismatch error, or you need to set browser config / install Chromium, follow the detailed setup in **[`openclaw-instructions.md`](openclaw-instructions.md)**.
+> Currently macOS only (Intel and Apple Silicon).
+> Re-running `./bootstrap.sh` is safe — it skips anything already done.
 
-## Running an existing skill
+## What you'll be asked for
 
-The shipped skills are user-invocable — ask the agent in natural language. Examples:
+The script will prompt you for the following. You can skip the optional ones and add them later by editing `.env`.
 
-- `ripio-dca`: *"Run my DCA"*, *"Buy the dip on Ripio with my available balance"*
-- `ripio-login` (rarely used directly): *"Log in to Ripio"*
-- `ripio-buy` (assumes you're already logged in): *"Buy the configured asset on Ripio"*
+| | What | Where to get it |
+|---|---|---|
+| Required | An **LLM API key** | [OpenAI](https://platform.openai.com/api-keys), [OpenRouter](https://openrouter.ai/keys), or [NVIDIA](https://build.nvidia.com/) — pick one |
+| Optional | A **Telegram bot token** | [@BotFather](https://t.me/BotFather) on Telegram. Without it, you use the dashboard only. |
+| Optional | **Ripio credentials** | Only if you want to use the bundled `ripio-login` / `ripio-buy` / `ripio-dca` skills. |
 
-The agent reads each skill's `description` from its `SKILL.md` frontmatter and picks the right one based on what you say.
+The dashboard pairing token is generated for you and stored in `.env`.
 
-If the skill needs an env var you haven't set, the agent will ask. If a step is interactive (2FA code, magic-link token), it'll prompt at the right moment.
+## Using it
 
-## Authoring a new skill
+Open the dashboard at <http://127.0.0.1:18789/> and just talk to it in plain language:
 
-You don't need to write code. The workflow is:
+- *"Run my DCA"* → invokes the `ripio-dca` skill (login + buy)
+- *"Buy the dip on Ripio with my available balance"* → same skill
+- *"Log in to Ripio"* → invokes `ripio-login` directly
 
-1. **Record** the flow you want to automate using Playwright's built-in recorder (`npx playwright codegen <url>`).
-2. **Translate** the recording into a skill by pasting it into a Claude conversation along with a templated prompt that knows this repo's conventions.
-3. **Install** the generated skill into your local OpenClaw container and try it.
+Each skill describes itself in plain English; the agent picks the right one from what you say. If a skill needs information you haven't given it (e.g. a 2FA code), it'll ask at the right moment.
 
-The end-to-end walkthrough is in **[`docs/recording-a-skill.md`](docs/recording-a-skill.md)**. The templated prompt is in **[`prompts/skill-from-codegen.md`](prompts/skill-from-codegen.md)**.
-
-If you'd rather start from a hand-edited skeleton, copy `skills/_template/` to `skills/<your-name>/` and fill in the placeholders. The template's `scripts/_template.sh` includes the helpers (`fill_by_id`, `click_by_id`, `wait_for_url_stable`) that handle the tricky parts of React-app automation.
-
-## Deploying a skill to the container
-
-After you create or edit a skill on your host, copy it into the running gateway:
+## Day-to-day commands
 
 ```bash
-# Deploy the whole skill directory
-docker cp skills/<skill-name> openclaw-openclaw-gateway-1:/home/node/.openclaw/workspace/skills/
-
-# Or just one file
-docker cp skills/<skill-name>/SKILL.md openclaw-openclaw-gateway-1:/home/node/.openclaw/workspace/skills/<skill-name>/SKILL.md
+docker compose down                          # stop
+docker compose up -d                         # start
+docker compose logs -f                       # tail logs
+docker compose pull && docker compose up -d  # update to the latest image
 ```
 
-The container picks up changes on the next skill invocation; no restart needed.
+If anything gets stuck, just re-run `./bootstrap.sh` — it'll repair whatever's broken without redoing what's already working.
 
-## Environment variables
+## Adding your own automations
 
-See `.env.example` for the full list. The variables specific to the shipped skills:
+You don't need to write code. The workflow:
 
-- `RIPIO_EMAIL`, `RIPIO_PASSWORD` — Ripio account credentials (used by `ripio-login`).
-- `RIPIO_DCA_ASSET_ORIGIN` — source currency for DCA buys, e.g. `ARS`.
-- `RIPIO_DCA_ASSET_TARGET` — ticker of the asset to buy, e.g. `BTC`.
+1. **Record** the flow you want to automate by running `npx playwright codegen <url>` (Playwright was installed by `bootstrap.sh`). Click through the steps in the browser that opens — Playwright records your clicks as a script.
+2. **Translate** the recording into a skill by pasting it into a Claude conversation along with the template prompt in [`prompts/skill-from-codegen.md`](prompts/skill-from-codegen.md).
+3. **Drop the result** into `skills/<your-skill-name>/`. The container picks it up automatically on the next start (or run `docker compose restart`).
 
-New skills you author should follow the same naming convention: `<SERVICE>_<FIELD>` (uppercase, underscored).
+The full walkthrough is in [`docs/LEGACY_recording-a-skill.md`](docs/LEGACY_recording-a-skill.md) — still mostly accurate, slated for a refresh.
 
-## Project layout
+## Privacy & safety
 
-```
-.
-├── README.md                    — this file
-├── CLAUDE.md                    — instructions for Claude when working in this repo
-├── .env.example                 — env var template
-├── docker-compose.yml           — extends OpenClaw's compose with this repo's env vars
-├── openclaw-instructions.md     — detailed OpenClaw setup reference
-├── openclaw-docker-instructions.md — extended Docker setup notes
-├── docs/
-│   └── recording-a-skill.md     — how to author a new skill (Playwright codegen → Claude → install)
-├── prompts/
-│   └── skill-from-codegen.md    — the LLM prompt template used by the workflow above
-└── skills/
-    ├── _template/               — skeleton + helper functions for new skills
-    ├── ripio-login/
-    ├── ripio-buy/
-    └── ripio-dca/
-```
+- Your `.env` (passwords, API keys) lives only on your Mac. Nothing is uploaded anywhere.
+- Skills only run when you trigger them through your own dashboard or bot.
+- The dashboard is bound to `127.0.0.1` — it isn't reachable from your LAN or the internet.
 
-## Security model
+Multi-user / hosted deployment is **out of scope**. If you fork this for that purpose, you're on your own for credential isolation, sandboxing, and the threat model that comes with it.
 
-This is a single-user, local-only setup by design:
+## When something breaks
 
-- Your credentials live in your local `.env` and the running container's environment. They are never uploaded anywhere.
-- Skills only run when you trigger them through your local OpenClaw instance.
-- The container is bound to localhost; the dashboard requires the token in `OPENCLAW_GATEWAY_TOKEN`.
+- **`./bootstrap.sh` failed partway** → just re-run it. Steps that already worked are skipped.
+- **Docker Desktop won't start** → open it manually from Applications, accept any GUI prompts, then re-run `./bootstrap.sh`.
+- **Dashboard says "token mismatch"** → your `.env` and the container disagree. `docker compose down && docker compose up -d` usually fixes it; if not, regenerate the token (delete `OPENCLAW_GATEWAY_TOKEN=…` from `.env` and re-run `./bootstrap.sh`).
+- **Anything else** → `docker compose logs -f` is the first place to look.
 
-Multi-user / hosted deployment is out of scope for this repo. If you fork it for that purpose, you're responsible for credential isolation, per-user sandboxing, and the rest of the threat model that comes with multi-tenant credential handling.
+## Legacy documentation
 
-## Troubleshooting
+The original developer-only docs are kept temporarily under `LEGACY_*` filenames while the new flow stabilises:
 
-- **"browser is not running" mid-skill** — every script in this repo starts with `openclaw browser start >/dev/null` to prevent this. If you see it in a new skill, make sure that line is present.
-- **`docker cp` says destination doesn't exist** — the gateway container's skills directory is created on first run. Make sure `docker compose ... up -d` completed before copying.
-- **Token mismatch on the dashboard** — set `OPENCLAW_GATEWAY_TOKEN` in `.env` and restart the gateway. Details in `openclaw-instructions.md`.
-- **Chromium / browser-stack errors** — follow the "Browser Setup" section of `openclaw-instructions.md`. The same doc covers the rare Playwright-Chromium-version-changed case.
-- **Anything else** — open an issue or read `openclaw-instructions.md`'s troubleshooting blocks; they cover most setup edge cases.
+- `LEGACY_README.md` — the previous README (manual Docker + sibling OpenClaw repo)
+- `LEGACY_openclaw-instructions.md` — original OpenClaw setup notes
+- `LEGACY_openclaw-docker-instructions.md` — extended Docker notes
+- `docs/LEGACY_recording-a-skill.md` — skill authoring walkthrough
+
+They'll be removed once nothing relies on them.
