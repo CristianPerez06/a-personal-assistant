@@ -59,10 +59,10 @@ Defined in `.env` (see `.env.example`). `bootstrap.sh` walks the user through th
 When a user asks for help adding a new automation (or a non-dev contributor asks how to add one), route them through the documented workflow rather than hand-writing the skill from scratch:
 
 1. Point them at `docs/LEGACY_recording-a-skill.md` for the end-to-end walkthrough.
-2. The translation step uses `prompts/skill-from-codegen.md` — that prompt already encodes every convention this repo follows (frontmatter shape, exit-code conventions, the React-safe `fill_by_id` pattern, `Failure Handling` boilerplate, etc.). Reuse it instead of paraphrasing.
+2. The translation step is the `/skill-from-codegen` Claude Code skill (`.claude/skills/skill-from-codegen/`) — it gathers context, maps `REPLACE_WITH_*` placeholders to `<SHORT_SKILL_NAME>__<SUFFIX>` env vars, and writes the SKILL.md + bash script. It already encodes every convention this repo follows (frontmatter shape, exit-code conventions, the React-safe `fill_by_id` pattern, `Failure Handling` boilerplate, etc.). Invoke it instead of paraphrasing.
 3. New skills should start from `skills/_template/` (copy the directory, rename, fill in placeholders) so they pick up the helper functions without copy-paste drift.
 
-If you're authoring a skill directly (without the codegen workflow), still follow `skills/_template/` and the conventions documented in the prompt template — they're load-bearing for the agent's ability to invoke skills correctly.
+If you're authoring a skill directly (without the codegen workflow), still follow `skills/_template/` and the conventions documented in the `/skill-from-codegen` skill — they're load-bearing for the agent's ability to invoke skills correctly.
 
 ## Development Notes
 
