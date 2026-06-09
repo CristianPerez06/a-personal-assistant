@@ -18,7 +18,8 @@
 #
 # Selector strategy: DOM via `openclaw browser evaluate`, using Ripio's stable
 # element ids and data-testids (login_email_input, login_password_input,
-# login_submit_button, login_otp_input_1..6). The previous version parsed
+# login_submit_button, mfa_method_select, mfa_method_submit_button,
+# mfa_otp_input_1..6, mfa_submit_button). The previous version parsed
 # accessibility snapshots with regex; that broke when Ripio's renderer added
 # attribute markers like `[active]` between the element name and `[ref=...]`
 # in the snapshot output.
@@ -136,18 +137,18 @@ if [ "$1" = "--2fa" ]; then
   SUBMIT_RESULT=$(openclaw browser evaluate --fn "() => {
     const digits = '$TOTP';
     for (let i = 1; i <= 6; i++) {
-      if (!document.getElementById('login_otp_input_' + i)) {
-        return 'missing_input:login_otp_input_' + i;
+      if (!document.getElementById('mfa_otp_input_' + i)) {
+        return 'missing_input:mfa_otp_input_' + i;
       }
     }
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
     for (let i = 1; i <= 6; i++) {
-      const el = document.getElementById('login_otp_input_' + i);
+      const el = document.getElementById('mfa_otp_input_' + i);
       setter.call(el, digits[i-1]);
       el.dispatchEvent(new Event('input', { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
     }
-    const btn = document.getElementById('login_submit_button');
+    const btn = document.getElementById('mfa_submit_button');
     if (!btn) return 'submit_not_found';
     if (btn.hasAttribute('disabled')) return 'submit_disabled';
     btn.click();
@@ -221,14 +222,61 @@ if echo "$SNAP" | grep -q "User could not authenticate"; then
   exit 2
 fi
 
+# MFA method picker: Ripio now shows a modal asking which 2FA method to use
+# before the OTP screen. #mfa_method_select is the list container; the actual
+# TOTP option is a radio input with a per-device id like
+# `mfa_method_<base64>`. We locate it by the label text matching "App de
+# códigos externa" (TOTP), falling back to the only input if there's just one.
+SELECT_RESULT=$(openclaw browser evaluate --fn '() => {
+  const container = document.getElementById("mfa_method_select");
+  if (!container) return "absent";
+  const inputs = Array.from(container.querySelectorAll("input"));
+  if (!inputs.length) return "no_inputs";
+  let target = null;
+  for (const inp of inputs) {
+    const label = container.querySelector(`label[for="${inp.id}"]`) || inp.closest("label");
+    const text = (label?.textContent || "").toLowerCase();
+    if (text.includes("códigos externa") || text.includes("authenticator")) {
+      target = inp;
+      break;
+    }
+  }
+  if (!target && inputs.length === 1) target = inputs[0];
+  if (!target) return "no_match";
+  target.click();
+  return "selected";
+}' | tr -d '"')
+case "$SELECT_RESULT" in
+  selected) ;;
+  absent) ;;
+  *) echo "MFA method picker present but couldn'\''t pick option: $SELECT_RESULT" >&2; exit 5 ;;
+esac
+
+# Submit method choice (separate evaluate so React can re-render between the
+# radio click and the disabled-check on the submit button).
+if [ "$SELECT_RESULT" = "selected" ]; then
+  sleep 1
+  SUBMIT_METHOD=$(openclaw browser evaluate --fn '() => {
+    const submit = document.getElementById("mfa_method_submit_button");
+    if (!submit) return "submit_not_found";
+    if (submit.hasAttribute("disabled")) return "submit_disabled";
+    submit.click();
+    return "submitted";
+  }' | tr -d '"')
+  case "$SUBMIT_METHOD" in
+    submitted) sleep 2 ;;
+    *) echo "MFA method submit failed: $SUBMIT_METHOD" >&2; exit 5 ;;
+  esac
+fi
+
 # 2FA detection: look for the 6 OTP inputs by their stable ids
-# (login_otp_input_1 .. login_otp_input_6). Same locator strategy as the
+# (mfa_otp_input_1 .. mfa_otp_input_6). Same locator strategy as the
 # --2fa fill mode. Text grep on the snapshot is fragile — Ripio's 2FA screen
 # copy can change ("código de seguridad" was matched in the past, but the
 # page now apparently renders different text and the grep misses).
 OTP_PRESENT=$(openclaw browser evaluate --fn '() => {
   for (let i = 1; i <= 6; i++) {
-    if (!document.getElementById("login_otp_input_" + i)) return "no";
+    if (!document.getElementById("mfa_otp_input_" + i)) return "no";
   }
   return "yes";
 }' | tr -d '"')
