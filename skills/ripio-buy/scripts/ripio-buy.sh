@@ -62,6 +62,7 @@ ASSET_TARGET="${RIPIO_DCA_ASSET_TARGET:?Missing env var RIPIO_DCA_ASSET_TARGET (
 ASSET_ORIGIN_UPPER=$(echo "$ASSET_ORIGIN" | tr '[:lower:]' '[:upper:]')
 ASSET_ORIGIN_LOWER=$(echo "$ASSET_ORIGIN" | tr '[:upper:]' '[:lower:]')
 ASSET_TARGET_UPPER=$(echo "$ASSET_TARGET" | tr '[:lower:]' '[:upper:]')
+ASSET_TARGET_LOWER=$(echo "$ASSET_TARGET" | tr '[:upper:]' '[:lower:]')
 
 # --- Stage 1: confirm we're on the authenticated dashboard ---
 log "Stage 1: confirming authenticated session"
@@ -139,29 +140,35 @@ if [ "$FORM_RESULT" != '"found"' ] && [ "$FORM_RESULT" != "found" ]; then
   exit 1
 fi
 
-# --- Stage 6: verify form, click Use max, click Preview swap, then click Confirm ---
-# 1. Verify all four form fields exist with matching id+data-testid+text, and
-#    that Preview swap is initially disabled.
-# 2. Click "Use max" to populate the amount.
-# 3. Confirm Preview swap is now enabled (signal that the amount filled in).
-# 4. Click Preview swap to advance to the preview screen.
-# 5. Verify the same button now shows "Confirm" instead of "Preview swap".
-# 6. Click Confirm to submit the swap.
-# The max-button testid embeds the origin currency (lowercased).
-log "Stage 6: verifying form fields (origin=$ASSET_ORIGIN_UPPER, max button, target=$ASSET_TARGET_UPPER, preview-disabled)"
+# --- Stage 6: verify form, pick target, accept disclaimer, click Use max, Preview, Confirm ---
+# 1. Verify form fields exist with matching id+data-testid (target dropdown is
+#    NOT pre-selected, so its text is not checked here), and Preview swap is
+#    initially disabled.
+# 2. Open the target dropdown and click the target asset item.
+# 3. Click the swap_form_disclaimer (acknowledgment) if present.
+# 4. Click "Use max" to populate the amount.
+# 5. Confirm Preview swap is now enabled (signal that the amount filled in).
+# 6. Click Preview swap to advance to the preview screen.
+# 7. Verify the same button now shows "Confirm" instead of "Preview swap".
+# 8. Click Confirm to submit the swap.
+# The max-button testid embeds the origin currency (lowercased); the target
+# item testid embeds the target currency (lowercased).
+log "Stage 6: verifying form fields (origin=$ASSET_ORIGIN_UPPER, max button, target dropdown present, preview-disabled)"
 FORM_FIELDS=$(openclaw browser evaluate --fn "() => {
   const checks = [
     { id: 'swap_form_input_origin_dropdown-button_toggle', text: '$ASSET_ORIGIN_UPPER' },
     { id: 'swap_form_input_origin_${ASSET_ORIGIN_LOWER}_use_all_my_balance', text: 'Use max' },
-    { id: 'swap_form_input_target_dropdown-button_toggle', text: '$ASSET_TARGET_UPPER' },
+    { id: 'swap_form_input_target_dropdown-button_toggle' },
     { id: 'swap_form_confirm_button', text: 'Preview swap', disabled: true },
   ];
   for (const c of checks) {
     const el = document.querySelector('[data-testid=' + JSON.stringify(c.id) + ']');
     if (!el) return 'missing:' + c.id;
     if (el.id !== c.id) return 'wrong_id:' + c.id + ':' + el.id;
-    const txt = (el.textContent || '').trim();
-    if (!txt.includes(c.text)) return 'wrong_text:' + c.id + ':expected=' + c.text + ':got=' + txt;
+    if (c.text !== undefined) {
+      const txt = (el.textContent || '').trim();
+      if (!txt.includes(c.text)) return 'wrong_text:' + c.id + ':expected=' + c.text + ':got=' + txt;
+    }
     if (c.disabled === true && !el.hasAttribute('disabled')) return 'not_disabled:' + c.id;
     if (c.disabled === false && el.hasAttribute('disabled')) return 'unexpectedly_disabled:' + c.id;
   }
@@ -171,6 +178,73 @@ log "Form fields check: $FORM_FIELDS"
 case "$FORM_FIELDS" in
   '"ok"'|'ok') log "All form fields verified (Preview swap initially disabled)" ;;
   *) log "ERROR: form fields check failed: $FORM_FIELDS"; exit 1 ;;
+esac
+
+# Open the target dropdown.
+log "Stage 6: opening target dropdown"
+TARGET_OPEN=$(openclaw browser evaluate --fn '() => {
+  const btn = document.getElementById("swap_form_input_target_dropdown-button_toggle");
+  if (!btn) return "not_found";
+  btn.click();
+  return "clicked";
+}')
+log "Target dropdown open result: $TARGET_OPEN"
+case "$TARGET_OPEN" in
+  '"clicked"'|'clicked') log "Target dropdown opened" ;;
+  *) log "ERROR: failed to open target dropdown: $TARGET_OPEN"; exit 1 ;;
+esac
+sleep 1
+
+# Click the target asset item. The dropdown row exposes its testid on the
+# wrapper, but the actual clickable element is the <a> inside it (matches the
+# Playwright recording: .locator("a").click()).
+log "Stage 6: selecting target asset $ASSET_TARGET_UPPER"
+TARGET_PICK=$(openclaw browser evaluate --fn "() => {
+  const id = 'swap_select_crypto_currencies_scroll_first_${ASSET_TARGET_LOWER}_item';
+  const row = document.querySelector('[data-testid=' + JSON.stringify(id) + ']');
+  if (!row) return 'not_found:' + id;
+  const link = row.querySelector('a');
+  if (!link) return 'no_link_in_row:' + id;
+  link.click();
+  return 'clicked';
+}")
+log "Target pick result: $TARGET_PICK"
+case "$TARGET_PICK" in
+  '"clicked"'|'clicked') log "Target asset selected" ;;
+  *) log "ERROR: failed to select target asset: $TARGET_PICK"; exit 1 ;;
+esac
+sleep 1
+
+# Verify the target dropdown now reads the chosen ticker.
+log "Stage 6: verifying target dropdown now shows $ASSET_TARGET_UPPER"
+TARGET_CONFIRM=$(openclaw browser evaluate --fn "() => {
+  const el = document.getElementById('swap_form_input_target_dropdown-button_toggle');
+  if (!el) return 'not_found';
+  const txt = (el.textContent || '').trim();
+  if (!txt.includes('$ASSET_TARGET_UPPER')) return 'wrong_text:' + txt;
+  return 'ok';
+}")
+log "Target confirm result: $TARGET_CONFIRM"
+case "$TARGET_CONFIRM" in
+  '"ok"'|'ok') log "Target dropdown confirmed as $ASSET_TARGET_UPPER" ;;
+  *) log "ERROR: target dropdown not updated: $TARGET_CONFIRM"; exit 1 ;;
+esac
+
+# Click the swap_form_disclaimer if present. Treat absence as benign — the
+# disclaimer may be a one-time acknowledgment that doesn't reappear on
+# subsequent buys in the same session.
+log "Stage 6: acknowledging swap_form_disclaimer (if present)"
+DISCLAIMER_RESULT=$(openclaw browser evaluate --fn '() => {
+  const el = document.querySelector("[data-testid=\"swap_form_disclaimer\"]");
+  if (!el) return "not_present";
+  el.click();
+  return "clicked";
+}')
+log "Disclaimer result: $DISCLAIMER_RESULT"
+case "$DISCLAIMER_RESULT" in
+  '"clicked"'|'clicked') log "Disclaimer acknowledged"; sleep 1 ;;
+  '"not_present"'|'not_present') log "No disclaimer present (already acknowledged or not required)" ;;
+  *) log "ERROR: unexpected disclaimer result: $DISCLAIMER_RESULT"; exit 1 ;;
 esac
 
 # Click "Use max" — this should populate the amount and enable Preview swap.
